@@ -1,0 +1,17 @@
+vac_job_title
+vac_location
+org_name
+prof_education
+prof_experience
+prof_languages
+cond_working_hours
+cond_hours_per_week
+cond_employment_type
+cond_contract_type
+salary
+org_contact_person
+org_address
+org_phone
+org_email
+org_website
+vac_ref_no
