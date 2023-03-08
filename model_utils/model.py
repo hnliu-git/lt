@@ -53,8 +53,9 @@ class BertTkModel(nn.Module):
                 batch = {k: v.cuda() for k, v in batch.items()}
             with torch.no_grad():
                 loss, logits = self(batch)
-            y_pred = torch.max(logits.data, 2)[1].cpu()
+            y_pred = torch.max(logits.data, 2)[1]
             if torch.cuda.is_available():
+                y_pred = y_pred.cpu()
                 labels = labels.cpu()
             y_preds.extend(y_pred.numpy().tolist())
             y_trues.extend(batch['labels'].numpy().tolist())

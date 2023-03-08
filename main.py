@@ -88,10 +88,10 @@ wandb.init(project='bert_vac_ner', name=exp_name)
 
 for epoch in range(1, config.epochs + 1):
     for batch in tqdm(train_loader):
-        # if torch.cuda.is_available():
-        #     input_dict = {k: v.cuda() for k, v in input_dict.items()}
-        #     labels = labels.cuda()
-            
+
+        if torch.cuda.is_available():
+            batch = {k: v.cuda() for k, v in batch.items()}
+
         loss, logits = model(batch)
 
         wandb.log({'train/loss': loss}, )
@@ -102,10 +102,6 @@ for epoch in range(1, config.epochs + 1):
         scheduler.step()
         optimizer.zero_grad()
         
-        preds = torch.max(logits.data, 1)[1].cpu()
-        if torch.cuda.is_available():
-            labels = labels.cpu()
-            
         if steps % config.steps_show == 0:
             loss, performance = model.evaluation(val_loader, compute_metrics)
             wandb.log({'eval/loss': loss})
