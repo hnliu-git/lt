@@ -1,4 +1,6 @@
 
+import torch
+
 from torchcrf import CRF
 from torch import nn 
 from transformers import AutoModelForTokenClassification
@@ -14,6 +16,9 @@ class BertTkModel(nn.Module):
         )
     
     def forward(self, input_dict):
+        if torch.cuda.is_available():
+            input_dict = {k: v.cuda() for k, v in input_dict.items()}
+
         output = self.model(**input_dict)
         return output['loss'], output['logits']
 
@@ -30,6 +35,9 @@ class BertCRFTkModel(nn.Module):
 
     def forward(self, batch):
         input_dict, crf_mask = batch
+        if torch.cuda.is_available():
+            input_dict = {k: v.cuda() for k, v in input_dict.items()}
+
         output = self.model(**input_dict)
 
         # Step forward to pass [CLS] labels * masks can remove all -100
@@ -38,6 +46,6 @@ class BertCRFTkModel(nn.Module):
         masks = crf_mask[:, 1:]
 
         crf_loss = self.crf(emissions, labels, masks)
-        tags = self.crf.decode(output['logits'])
+        tags = [[0] + tag for tag in self.crf.decode(emissions)]
 
         return -crf_loss, tags

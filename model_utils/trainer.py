@@ -35,8 +35,6 @@ class Trainer:
 
         for _ in range(self.config.epochs):
             for batch in self.train_loader:
-                if torch.cuda.is_available():
-                    batch = {k: v.cuda() for k, v in batch.items()}
                 
                 loss, _ = self.model(batch)
                 wandb.log({'train/loss': loss}, commit=False)
@@ -71,19 +69,26 @@ class Trainer:
         losses = []
 
         for batch in val_loader:
-            if torch.cuda.is_available():
-                batch = {k: v.cuda() for k, v in batch.items()}
             with torch.no_grad():
-                loss, logits = self.model(batch)
-            y_pred = torch.max(logits.data, 2)[1]
+                loss, y_pred = self.model(batch)
+            # y_pred = torch.max(logits.data, 2)[1]
             
             if torch.cuda.is_available():
                 y_pred = y_pred.cpu()
-                labels = batch['labels'].cpu()
+                if self.config.use_crf:
+                    labels = batch[0]['labels'].cpu()
+                else:
+                    labels = batch['labels'].cpu()
             else:
-                labels = batch['labels']
+                if self.config.use_crf:
+                    labels = batch[0]['labels'].cpu()
+                else:
+                    labels = batch['labels']
 
-            y_preds.extend(y_pred.numpy().tolist())
+            # TODO unify it
+            # if not self.config.use_crf:
+                # y_preds.extend(y_pred.numpy().tolist())
+            y_preds.extend(y_pred)
             y_trues.extend(labels.numpy().tolist())
             losses.append(loss)
             pbar.update(n=1)

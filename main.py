@@ -52,7 +52,7 @@ class GlobalConfig:
 
 data_folder = 'data/'
 config = GlobalConfig()
-exp_name = '%s-nl-epoch%d'%(config.model_name, config.epochs)
+exp_name = '%s-nl-epoch%d-crf'%(config.model_name, config.epochs)
 
 data_files = {
     'train': data_folder + 'train.jsonl',
