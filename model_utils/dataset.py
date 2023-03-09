@@ -26,6 +26,8 @@ class TKDataset(Dataset):
 
         label_name = "label" if "label" in features[0].keys() else "labels"
         labels = [feature[label_name] for feature in features] if label_name in features[0].keys() else None
+        features = [{k: v for k, v in feature.items() if k in ['input_ids', 'attention_mask']} for feature in features]
+
         batch = self.tokenizer.pad(
             features,
             padding=True,
@@ -37,17 +39,23 @@ class TKDataset(Dataset):
             return batch
 
         sequence_length = torch.tensor(batch["input_ids"]).shape[1]
-        padding_side = self.tokenizer.padding_side
-        if padding_side == "right":
-            batch[label_name] = [
-                list(label) + [self.label_pad_token_id] * (sequence_length - len(label)) for label in labels
-            ]
-        else:
-            batch[label_name] = [
-                [self.label_pad_token_id] * (sequence_length - len(label)) + list(label) for label in labels
-            ]
+        batch[label_name] = [
+            list(label) + [self.label_pad_token_id] * (sequence_length - len(label)) for label in labels
+        ]
 
-        batch = {k: torch.tensor(v, dtype=torch.int64) for k, v in batch.items() if k in ['attention_mask', 'input_ids', 'labels']}
+        batch = {k: torch.tensor(v, dtype=torch.int64) for k, v in batch.items()}
+
+        if self.config.use_crf:
+            crf_mask = []
+            for feature in features:
+                mask = feature['attention_mask']
+                mask[0] = 0
+                mask[-1] = 0
+                crf_mask.append(mask + [0] * (sequence_length - len(mask)))
+            crf_mask = torch.tensor(crf_mask, dtype=torch.bool)
+
+            return batch, crf_mask
+
         return batch
 
     def build_dataloader(self):

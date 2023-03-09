@@ -1,12 +1,12 @@
 # TODO
-# - Trainer Class
-# - Add CRF Layer
+# - Trainer Class DONE!
+# - Add CRF Layer 
 # - The idea
 
 
 from tqdm import tqdm
 from transformers import AutoTokenizer
-from model_utils.model import BertTkModel
+from model_utils.model import BertTkModel, BertCRFTkModel
 from model_utils.trainer import Trainer
 from model_utils.dataset import TKDataset
 from metric_utils.data_utils import TagDict
@@ -45,9 +45,10 @@ class GlobalConfig:
         # training setting
         self.epochs = 20
         self.steps_show = 100
-        self.warmup_steps = 0
+        self.warmup_steps = 0.003
         self.lr = 2e-5
         self.saved_model_path = 'saved_models'
+        self.use_crf = True
 
 data_folder = 'data/'
 config = GlobalConfig()
@@ -82,7 +83,7 @@ test_loader = TKDataset(tokenizer, tokenized_dataset, 'test', config).build_data
 config.train_steps = len(train_loader) * config.epochs
 # config.steps_show = int(len(train_loader) * 0.3)
 
-model = BertTkModel(config)
+model = BertCRFTkModel(config)
 
 wandb.init(project='bert_vac_ner', name=exp_name)
 
