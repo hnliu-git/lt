@@ -1,13 +1,18 @@
+# TODO
+# - Trainer Class
+# - Add CRF Layer
+# - The idea
+
 
 from tqdm import tqdm
 from transformers import AutoTokenizer
 from model_utils.model import BertTkModel
+from model_utils.trainer import Trainer
 from model_utils.dataset import TKDataset
 from metric_utils.data_utils import TagDict
 from metric_utils.metrics import initialize_metrics
 from model_utils.utils import vac_tags_dict, vac_main_dict, tokenize_and_align_labels, tokenize_and_align_labels_and_chunk
 
-import torch
 import wandb
 import datasets
 
@@ -32,16 +37,16 @@ class GlobalConfig:
         # general setting
         self.seed = 2022
         # model setting
-        self.model_name = 'xlm-roberta-base'
+        self.model_name = 'xlm-roberta-large'
         self.num_labels = len(vac_tags_dict)
         # data setting
         self.max_length = 512
-        self.batch_size = 32
+        self.batch_size = 16
         # training setting
-        self.epochs = 10
+        self.epochs = 20
         self.steps_show = 100
-        self.warmup_steps = 0.1
-        self.lr = 5e-6
+        self.warmup_steps = 0
+        self.lr = 2e-5
         self.saved_model_path = 'saved_models'
 
 data_folder = 'data/'
@@ -78,39 +83,16 @@ config.train_steps = len(train_loader) * config.epochs
 # config.steps_show = int(len(train_loader) * 0.3)
 
 model = BertTkModel(config)
-optimizer, scheduler = model.get_optimizer()
-
-steps = 0
-best_f1 = 0
-model.train()
 
 wandb.init(project='bert_vac_ner', name=exp_name)
 
-for epoch in range(1, config.epochs + 1):
-    for batch in tqdm(train_loader):
+trainer = Trainer(
+    config,
+    train_loader,
+    val_loader,
+    model,
+    compute_metrics
+)
 
-        if torch.cuda.is_available():
-            batch = {k: v.cuda() for k, v in batch.items()}
-
-        loss, logits = model(batch)
-
-        wandb.log({'train/loss': loss}, )
-
-        loss.backward()
-
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()
-        
-        if steps % config.steps_show == 0:
-            loss, performance = model.evaluation(val_loader, compute_metrics)
-            wandb.log({'eval/loss': loss})
-            wandb.log({'eval/' + k: v for k, v in performance.items()})
-
-        steps += 1
-            
-    # if dev_f1 > best_f1:
-    #     best_f1 = dev_f1
-    #     torch.save(model, f'{config.saved_model_path}/test.pth')
-    #     print('save best model   f1:%.6f'%best_f1)
+trainer.train()
 
