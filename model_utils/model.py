@@ -14,13 +14,20 @@ class BertTkModel(nn.Module):
             config.model_name,
             num_labels=config.num_labels
         )
+        if torch.cuda.is_available():
+            self.cuda()
     
     def forward(self, input_dict):
         if torch.cuda.is_available():
             input_dict = {k: v.cuda() for k, v in input_dict.items()}
 
         output = self.model(**input_dict)
-        return output['loss'], output['logits']
+        tags = torch.max(output['logits'].data, 2)[1]
+
+        if torch.cuda.is_available():
+            tags = tags.cuda()
+
+        return output['loss'], tags.numpy().tolist()
 
 class BertCRFTkModel(nn.Module):
 
@@ -32,6 +39,9 @@ class BertCRFTkModel(nn.Module):
             num_labels=config.num_labels
         )
         self.crf = CRF(config.num_labels, batch_first=True) 
+
+        if torch.cuda.is_available():
+            self.cuda()
 
     def forward(self, batch):
         input_dict, crf_mask = batch

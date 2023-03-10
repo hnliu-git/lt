@@ -24,11 +24,11 @@ class Trainer:
     
     def train(self):
 
-        if torch.cuda.is_available():
-            self.model.cuda()
-        
         self.model.train()
-        optimizer, scheduler = self.get_optimizer()
+        if self.config.use_crf:
+            optimizer, optimizer_crf, scheduler, scheduler_crf = self.get_crf_optimizer()
+        else:
+            optimizer, scheduler = self.get_optimizer()
         pbar = tqdm(total=self.config.train_steps)
         pbar.set_description('Training steps:')
         step = 0
@@ -40,10 +40,15 @@ class Trainer:
                 wandb.log({'train/loss': loss}, commit=False)
 
                 loss.backward()
-
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
+                
+                if self.config.use_crf: 
+                    optimizer_crf.step()
+                    scheduler_crf.step()
+                    optimizer_crf.zero_grad()
+
                 pbar.update(n=1) 
 
                 if step != 0 and step % self.config.steps_show == 0:
@@ -71,25 +76,22 @@ class Trainer:
         for batch in val_loader:
             with torch.no_grad():
                 loss, y_pred = self.model(batch)
-            # y_pred = torch.max(logits.data, 2)[1]
             
             if torch.cuda.is_available():
-                y_pred = y_pred.cpu()
                 if self.config.use_crf:
                     labels = batch[0]['labels'].cpu()
                 else:
                     labels = batch['labels'].cpu()
             else:
                 if self.config.use_crf:
-                    labels = batch[0]['labels'].cpu()
+                    labels = batch[0]['labels']
                 else:
                     labels = batch['labels']
 
-            # TODO unify it
-            # if not self.config.use_crf:
-                # y_preds.extend(y_pred.numpy().tolist())
+            labels = labels.numpy().tolist()
+
             y_preds.extend(y_pred)
-            y_trues.extend(labels.numpy().tolist())
+            y_trues.extend(labels)
             losses.append(loss)
             pbar.update(n=1)
             
@@ -98,6 +100,47 @@ class Trainer:
 
         self.model.train()
         return loss, performance
+
+    def get_crf_optimizer(self):
+        model_params = list(self.model.model.named_parameters())
+        no_decay = ['bias']
+        optimizer_parameters = [
+            {
+                'params': [p for n, p in model_params if not any(nd in n for nd in no_decay)],
+                'weight_decay': 1e-3
+            },
+            {
+                'params': [p for n, p in model_params if any(nd in n for nd in no_decay)],
+                'weight_decay': 0.
+            }
+        ]
+        optimizer_model = optim.AdamW(
+            optimizer_parameters,
+            lr=self.config.lr,
+        )
+        crf_params = list(self.model.crf.named_parameters())
+        crf_optimizer_parameters = [
+            {
+                'params': [p for n, p in crf_params],
+                'weight_decay': 1e-3
+            }
+        ] 
+        optimizer_crf = optim.AdamW(
+            crf_optimizer_parameters,
+            lr=self.config.lr*100,
+        )
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer_model,
+            num_warmup_steps=int(self.config.warmup_steps * self.config.train_steps),
+            num_training_steps=self.config.train_steps
+        )
+        scheduler_crf = get_linear_schedule_with_warmup(
+            optimizer_crf,
+            num_warmup_steps=int(self.config.warmup_steps * self.config.train_steps),
+            num_training_steps=self.config.train_steps
+        )
+        
+        return optimizer_model, optimizer_crf, scheduler, scheduler_crf 
 
 
     def get_optimizer(self):
@@ -116,7 +159,6 @@ class Trainer:
         optimizer = optim.AdamW(
             optimizer_parameters,
             lr=self.config.lr,
-
         )
 
         scheduler = get_linear_schedule_with_warmup(

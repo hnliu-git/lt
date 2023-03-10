@@ -1,10 +1,10 @@
 # TODO
 # - Trainer Class DONE!
-# - Add CRF Layer 
+# - Add CRF Layer
+#   - Refactor code DONE!
 # - The idea
 
 
-from tqdm import tqdm
 from transformers import AutoTokenizer
 from model_utils.model import BertTkModel, BertCRFTkModel
 from model_utils.trainer import Trainer
@@ -83,7 +83,10 @@ test_loader = TKDataset(tokenizer, tokenized_dataset, 'test', config).build_data
 config.train_steps = len(train_loader) * config.epochs
 # config.steps_show = int(len(train_loader) * 0.3)
 
-model = BertCRFTkModel(config)
+if config.use_crf:
+    model = BertCRFTkModel(config)
+else:
+    model = BertTkModel(config)
 
 wandb.init(project='bert_vac_ner', name=exp_name)
 
