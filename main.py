@@ -2,8 +2,9 @@
 # - Trainer Class DONE!
 # - Add CRF Layer DONE!
 #   - Refactor code DONE!
-# - The idea
-#   - Plus CRF
+# - The idea DONE!
+#   - Compare without ctx DONE!
+#   - Plus CRF DONE?
 # - Ask for resources
 #   - Pre-trained
 
@@ -40,7 +41,7 @@ class GlobalConfig:
         # general setting
         self.seed = 2022
         # model setting
-        self.model_name = 'xlm-roberta-large'
+        self.model_name = 'xlm-roberta-base'
         self.num_labels = len(vac_tags_dict)
         # data setting
         self.max_length = 512
@@ -51,7 +52,8 @@ class GlobalConfig:
         self.warmup_steps = 0.003
         self.lr = 2e-5
         self.saved_model_path = 'saved_models'
-        self.use_crf = False
+        self.use_crf = True
+        self.use_ctx = False
         self.use_chunk = True
 
 data_folder = 'data/'

@@ -139,6 +139,18 @@ class TKChunkDataset:
             ]
 
             batch = {k: torch.tensor(v, dtype=torch.int64) for k, v in batch.items()}
+
+            if self.config.use_crf:
+                crf_mask = []
+                for feature in features:
+                    mask = feature['attention_mask'][i]
+                    mask[0] = 0
+                    mask[-1] = 0
+                    crf_mask.append(mask + [0] * (sequence_length - len(mask)))
+                crf_mask = torch.tensor(crf_mask, dtype=torch.bool)
+
+            batch['crf_mask'] = crf_mask
+
             batches.append(batch)
 
         return batches 

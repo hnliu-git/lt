@@ -189,7 +189,11 @@ class ChunkTrainer:
     def train(self):
         self.config.train_steps = sum([len(loader)*num for num, loader in self.train_loader])*self.config.epochs
         self.model.train()
-        optimizer, scheduler = self.get_optimizer()
+
+        if self.config.use_crf:
+            optimizer, optimizer_crf, scheduler, scheduler_crf = self.get_crf_optimizer()
+        else:
+            optimizer, scheduler = self.get_optimizer()
 
         pbar = tqdm(total=self.config.train_steps)
         pbar.set_description('Training steps:')
@@ -210,6 +214,11 @@ class ChunkTrainer:
                         optimizer.step()
                         scheduler.step()
                         optimizer.zero_grad()
+
+                        if self.config.use_crf:
+                            optimizer_crf.step()
+                            scheduler_crf.step()
+                            optimizer_crf.zero_grad()
 
                         if pbar.n != 0 and pbar.n % self.config.steps_show == 0:
                             loss, performance = self.evaluation(self.val_loader, self.metric_func)
@@ -284,3 +293,44 @@ class ChunkTrainer:
         )
 
         return optimizer, scheduler
+
+    def get_crf_optimizer(self):
+        model_params = list(self.model.model.named_parameters())
+        no_decay = ['bias']
+        optimizer_parameters = [
+            {
+                'params': [p for n, p in model_params if not any(nd in n for nd in no_decay)],
+                'weight_decay': 1e-3
+            },
+            {
+                'params': [p for n, p in model_params if any(nd in n for nd in no_decay)],
+                'weight_decay': 0.
+            }
+        ]
+        optimizer_model = optim.AdamW(
+            optimizer_parameters,
+            lr=self.config.lr,
+        )
+        crf_params = list(self.model.crf.named_parameters())
+        crf_optimizer_parameters = [
+            {
+                'params': [p for n, p in crf_params],
+                'weight_decay': 1e-3
+            }
+        ] 
+        optimizer_crf = optim.AdamW(
+            crf_optimizer_parameters,
+            lr=self.config.lr*100,
+        )
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer_model,
+            num_warmup_steps=int(self.config.warmup_steps * self.config.train_steps),
+            num_training_steps=self.config.train_steps
+        )
+        scheduler_crf = get_linear_schedule_with_warmup(
+            optimizer_crf,
+            num_warmup_steps=int(self.config.warmup_steps * self.config.train_steps),
+            num_training_steps=self.config.train_steps
+        )
+        
+        return optimizer_model, optimizer_crf, scheduler, scheduler_crf 
