@@ -34,7 +34,7 @@ def tokenize_and_align_labels(examples, tokenizer, label_all_tokens=True):
     tokenized_inputs["labels"] = labels
     return tokenized_inputs
 
-def tokenize_and_align_labels_and_chunk(example, tokenizer, stride=32):
+def tokenize_and_align_labels_and_chunk(example, tokenizer, stride=0):
 
     tokenized_input_chunk = tokenizer(
         example['tokens'],

@@ -1,6 +1,6 @@
 import torch
-import pandas as pd
 
+from datasets import Dataset as HgDataset
 from transformers import AutoTokenizer
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 
@@ -68,66 +68,98 @@ class TKDataset(Dataset):
         
         return dataloader
 
+class TKChunkData(Dataset):
 
-class TKChunkDataset(IterableDataset):
+    def __init__(self, dataset) -> None:
+        super().__init__()
+        self.dataset = dataset
+    
+    def __len__(self):
+        return len(self.dataset)
+    
+    def __getitem__(self, index):
+        return self.dataset[index]
 
-    def __init__(self, dataset, split) -> None:
+
+class TKChunkDataset:
+
+    def __init__(self, tokenizer, dataset, split, config) -> None:
         self.dataset = dataset[split]
-
-    def __len__(self):
-        return sum(self.dataset['chunk_num'])
-
-    def __iter__(self):
-        for doc in self.dataset:
-            for i in range(doc['chunk_num']):
-                yield {
-                    k: doc[k][i]
-                    for k in ['input_ids', 'attention_mask', 'labels']
-                }
-
-class DFDataset(Dataset):
-    
-    def __init__(self, df, config, is_test):
-
-        if type(df) == str:
-            self.df = pd.read_csv(df, index_col=0)
-        else:
-            self.df = df
-        
         self.config = config
-        self.is_test = is_test
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-
-    def collate_fn(self, batch):
-        texts = [item[self.config.train_col] for item in batch]
-        encoded_text = self.tokenizer(
-            texts,
-            truncation=True,
-            padding='max_length',
-            return_tensors='pt',
-            max_length=self.config.max_length
-        )
-        
-        if self.is_test:
-            return encoded_text
-        else:
-            type2label = {2:1, 1:0}
-            labels = [type2label[item[self.config.label_col]] for item in batch]
-            labels = torch.LongTensor(labels)
-            return encoded_text, labels
+        self.tokenizer = tokenizer
+        self.split = split
+        self.label_pad_token_id = -100
     
-    def build_dataloader(self):
-        dataloader = DataLoader(
-            self,
-            batch_size=self.config.batch_size,
-            collate_fn=self.collate_fn,
-            shuffle=not self.is_test
-        )
-        
-        return dataloader
-    
-    def __len__(self):
-        return self.df.shape[0]
+    def build_dataloaders(self):
+        """
+        return a list of dataloaders, each loader has docs with the same chunk num
+        """
+        num2sets = {}
 
-    def __getitem__(self, ix):
-        return self.df.iloc[ix]
+        for doc in self.dataset:
+            if doc['chunk_num'] not in num2sets:
+                num2sets[doc['chunk_num']] = []
+            # TODO Limit the length of doc to avoid short loader
+            num2sets[doc['chunk_num']].append(doc)
+
+        max_num_chunk = max(num2sets.keys())
+        print("Max chunk num is", max_num_chunk)
+
+        dataloaders = []
+        for num in num2sets.keys():
+            dataset = HgDataset.from_list(num2sets[num])
+            dataloaders.append((num, DataLoader(
+                TKChunkData(dataset),
+                batch_size=self.config.batch_size,
+                collate_fn=self.collate_fn,
+                shuffle=self.split == 'train'
+            )))
+        
+        return dataloaders
+    
+    def collate_fn(self, features):
+        
+        num_chunk = features[0]['chunk_num']
+        batches = []
+
+        for i in range(num_chunk):
+            labels_chunk = [feature['labels'][i] for feature in features]
+            features_chunk = [{k: v[i] for k, v in feature.items() if k in ['input_ids', 'attention_mask']} for feature in features] 
+
+            batch = self.tokenizer.pad(
+                features_chunk,
+                padding=True,
+                # Conversion to tensors will fail if we have labels as they are not of the same length yet.
+                return_tensors=None,
+            )
+
+            sequence_length = torch.tensor(batch["input_ids"]).shape[1]
+            batch['labels'] = [
+                list(label) + [self.label_pad_token_id] * (sequence_length - len(label)) for label in labels_chunk
+            ]
+
+            batch = {k: torch.tensor(v, dtype=torch.int64) for k, v in batch.items()}
+            batches.append(batch)
+
+        return batches 
+    
+# class TKChunkDataset(IterableDataset):
+
+#     def __init__(self, dataset, split) -> None:
+#         self.dataset = dataset[split]
+
+#     def __len__(self):
+#         return sum(self.dataset['chunk_num'])
+
+#     def __iter__(self):
+#         for doc in self.dataset:
+#             for i in range(doc['chunk_num']):
+#                 yield {
+#                     k: doc[k][i]
+#                     for k in ['input_ids', 'attention_mask', 'labels']
+#                 }
+
+#     def build_dataloaders(self):
+        
+#         pass
+

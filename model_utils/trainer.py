@@ -168,3 +168,119 @@ class Trainer:
         )
 
         return optimizer, scheduler
+    
+
+class ChunkTrainer:
+
+    def __init__(
+        self,
+        config,
+        train_loader,
+        val_loader,
+        model,
+        metric_func,
+    ):
+        self.config = config
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.model = model
+        self.metric_func = metric_func
+    
+    def train(self):
+        self.config.train_steps = sum([len(loader)*num for num, loader in self.train_loader])*self.config.epochs
+        self.model.train()
+        optimizer, scheduler = self.get_optimizer()
+
+        pbar = tqdm(total=self.config.train_steps)
+        pbar.set_description('Training steps:')
+
+        for _ in range(self.config.epochs):
+
+            for num_chunk, loader in self.train_loader:
+                for batches in loader:
+                    for i in range(num_chunk):
+                        if i == 0:
+                            loss, _, ctx = self.model(batches[i])
+                        else:
+                            loss, _, ctx = self.model(batches[i], ctx)
+
+                        wandb.log({'train/loss': loss}, commit=False)
+
+                        loss.backward()
+                        optimizer.step()
+                        scheduler.step()
+                        optimizer.zero_grad()
+
+                        if pbar.n != 0 and pbar.n % self.config.steps_show == 0:
+                            loss, performance = self.evaluation(self.val_loader, self.metric_func)
+                            wandb.log({'eval/loss': loss})
+                            wandb.log({'eval/' + k: v for k, v in performance.items()})
+                        pbar.update(n=1) 
+
+       # if dev_f1 > best_f1:
+    #     best_f1 = dev_f1
+    #     torch.save(model, f'{config.saved_model_path}/test.pth')
+    #     print('save best model   f1:%.6f'%best_f1) 
+
+    def evaluation(self, val_loader, func):
+
+        pbar = tqdm(total=sum([len(loader)*num for num, loader in val_loader]))
+        pbar.set_description('Validation step:')
+
+        self.model.eval()
+
+        y_trues =[]
+        y_preds = []
+        losses = []
+
+        for num_chunk, loader in val_loader:
+            for batches in loader:
+                for i in range(num_chunk):
+                    if i == 0:
+                        with torch.no_grad():
+                            loss, y_pred, ctx = self.model(batches[i])
+                    else:
+                        with torch.no_grad():
+                            loss, y_pred, ctx = self.model(batches[i], ctx)
+                    
+                    if torch.cuda.is_available():
+                        labels = batches[i]['labels'].cpu().numpy().tolist()
+                    else:
+                        labels = batches[i]['labels'].numpy().tolist()
+
+                    y_preds.extend(y_pred)
+                    y_trues.extend(labels)
+                    losses.append(loss)
+                    pbar.update(n=1)
+            
+        performance = func(y_preds, y_trues)
+        loss = sum(losses) / len(losses)
+
+        self.model.train()
+        return loss, performance
+
+    def get_optimizer(self):
+        param_optimizer = list(self.model.named_parameters())
+        no_decay = ['bias']
+        optimizer_parameters = [
+            {
+                'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+                'weight_decay': 1e-3
+            },
+            {
+                'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
+                'weight_decay': 0.
+            }
+        ]
+        optimizer = optim.AdamW(
+            optimizer_parameters,
+            lr=self.config.lr,
+        )
+
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=int(self.config.warmup_steps * self.config.train_steps),
+            num_training_steps=self.config.train_steps
+        )
+
+        return optimizer, scheduler

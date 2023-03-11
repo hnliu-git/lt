@@ -1,14 +1,17 @@
 # TODO
 # - Trainer Class DONE!
-# - Add CRF Layer
+# - Add CRF Layer DONE!
 #   - Refactor code DONE!
 # - The idea
+#   - Plus CRF
+# - Ask for resources
+#   - Pre-trained
 
 
 from transformers import AutoTokenizer
-from model_utils.model import BertTkModel, BertCRFTkModel
-from model_utils.trainer import Trainer
-from model_utils.dataset import TKDataset
+from model_utils.model import BertTkModel, BertCRFTkModel, BertChunkTkModel
+from model_utils.trainer import Trainer, ChunkTrainer
+from model_utils.dataset import TKDataset, TKChunkDataset
 from metric_utils.data_utils import TagDict
 from metric_utils.metrics import initialize_metrics
 from model_utils.utils import vac_tags_dict, vac_main_dict, tokenize_and_align_labels, tokenize_and_align_labels_and_chunk
@@ -48,7 +51,8 @@ class GlobalConfig:
         self.warmup_steps = 0.003
         self.lr = 2e-5
         self.saved_model_path = 'saved_models'
-        self.use_crf = True
+        self.use_crf = False
+        self.use_chunk = True
 
 data_folder = 'data/'
 config = GlobalConfig()
@@ -67,8 +71,13 @@ print(f'eval: {len(dataset["validation"])}')
 print(f'test: {len(dataset["test"])}')
 
 tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-tokenized_dataset = dataset.map(lambda x: tokenize_and_align_labels(x, tokenizer), batched=True)
-# tokenized_dataset.cleanup_cache_files()
+
+if config.use_chunk:
+    tokenized_dataset = dataset.map(lambda x: tokenize_and_align_labels_and_chunk(x, tokenizer))
+else:
+    tokenized_dataset = dataset.map(lambda x: tokenize_and_align_labels(x, tokenizer), batched=True)
+
+tokenized_dataset.cleanup_cache_files()
 
 metrics = initialize_metrics(
     metric_names=['accuracy', 'entity_score', 'entity_overlap'],
@@ -76,27 +85,39 @@ metrics = initialize_metrics(
     main_entities=open('metric_utils/main_ents.txt').read().splitlines()
 )
 
-train_loader = TKDataset(tokenizer, tokenized_dataset, 'train', config).build_dataloader()
-val_loader = TKDataset(tokenizer, tokenized_dataset, 'validation', config).build_dataloader()
-test_loader = TKDataset(tokenizer, tokenized_dataset, 'test', config).build_dataloader()
-
-config.train_steps = len(train_loader) * config.epochs
-# config.steps_show = int(len(train_loader) * 0.3)
+if config.use_chunk:
+    train_loaders = TKChunkDataset(tokenizer, tokenized_dataset, 'train', config).build_dataloaders()
+    val_loaders = TKChunkDataset(tokenizer, tokenized_dataset, 'validation', config).build_dataloaders()
+else:
+    train_loader = TKDataset(tokenizer, tokenized_dataset, 'train', config).build_dataloader()
+    val_loader = TKDataset(tokenizer, tokenized_dataset, 'validation', config).build_dataloader()
+    test_loader = TKDataset(tokenizer, tokenized_dataset, 'test', config).build_dataloader()
 
 if config.use_crf:
     model = BertCRFTkModel(config)
+if config.use_chunk:
+    model = BertChunkTkModel(config)
 else:
     model = BertTkModel(config)
 
 wandb.init(project='bert_vac_ner', name=exp_name)
 
-trainer = Trainer(
-    config,
-    train_loader,
-    val_loader,
-    model,
-    compute_metrics
-)
+if config.use_chunk:
+    trainer = ChunkTrainer(
+        config,
+        train_loaders,
+        val_loaders,
+        model,
+        compute_metrics
+    )
+else:
+    trainer = Trainer(
+        config,
+        train_loader,
+        val_loader,
+        model,
+        compute_metrics
+    )
 
 trainer.train()
 
